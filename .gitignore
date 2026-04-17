@@ -1,0 +1,52 @@
+# build output
+dist/
+.vite-inspect/
+.remote-assets/
+
+# generated types
+.astro/
+.vercel/
+components.d.ts
+*.local
+
+# dependencies
+node_modules/
+.pnpm-store/
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# typescript
+*.tsbuildinfo
+
+# environment variables
+**/.env*
+!**/.env.example
+
+# Supabase CLI
+supabase/.temp/
+supabase/.branches/
+
+# Astro
+.astro/types.d.ts
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+$Recycle.Bin/
+*.log
+
+# IDE setting
+.idea/
+.history/
+.eslintcache
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+*.sublime-project
+*.sublime-workspace
