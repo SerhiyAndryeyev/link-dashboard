@@ -1,5 +1,82 @@
 ---
+import { hasSupabaseCredentials, supabase } from "../lib/supabase";
 
+type DashboardLink = {
+	id: string;
+	category_name: string;
+	title: string;
+	url: string;
+	description: string | null;
+	favicon_url: string | null;
+};
+
+const fallbackLinks: DashboardLink[] = [
+	{
+		id: "1",
+		category_name: "Analytics",
+		title: "Plausible",
+		url: "https://plausible.io",
+		description: "Website analytics",
+		favicon_url: null,
+	},
+	{
+		id: "2",
+		category_name: "Analytics",
+		title: "Sentry",
+		url: "https://sentry.io",
+		description: "Error monitoring",
+		favicon_url: null,
+	},
+	{
+		id: "3",
+		category_name: "Hosting",
+		title: "Vercel",
+		url: "https://vercel.com",
+		description: "Frontend deployments",
+		favicon_url: null,
+	},
+	{
+		id: "4",
+		category_name: "Hosting",
+		title: "Railway",
+		url: "https://railway.app",
+		description: "Backend services",
+		favicon_url: null,
+	},
+	{
+		id: "5",
+		category_name: "Project Management",
+		title: "Notion",
+		url: "https://notion.so",
+		description: "Docs and wikis",
+		favicon_url: null,
+	},
+];
+
+let links = fallbackLinks;
+
+if (hasSupabaseCredentials && supabase) {
+	const { data, error } = await supabase
+		.from("links")
+		.select("id, category_name, title, url, description, favicon_url")
+		.order("category_name", { ascending: true })
+		.order("created_at", { ascending: true });
+
+	if (!error && data && data.length > 0) {
+		links = data;
+	}
+}
+
+const groupedLinks = links.reduce((accumulator, link) => {
+	const category = link.category_name || "Uncategorized";
+	if (!accumulator[category]) {
+		accumulator[category] = [];
+	}
+	accumulator[category].push(link);
+	return accumulator;
+}, {} as Record<string, DashboardLink[]>);
+
+const categories = Object.entries(groupedLinks);
 ---
 
 <html lang="en">
@@ -9,9 +86,368 @@
 		<link rel="icon" href="/favicon.ico" />
 		<meta name="viewport" content="width=device-width" />
 		<meta name="generator" content={Astro.generator} />
-		<title>Astro</title>
+		<title>Command Mission Control</title>
+		<style>
+			:root {
+				--bg: #f3f0e8;
+				--panel: #f3f0e8;
+				--text: #111111;
+				--text-muted: #555555;
+				--border: #111111;
+				--active-bg: #111111;
+				--active-text: #f3f0e8;
+				--accent: #ff6b35;
+			}
+
+			:root[data-theme="dark"] {
+				--bg: #080808;
+				--panel: #080808;
+				--text: #eeeeee;
+				--text-muted: #aaaaaa;
+				--border: #333333;
+				--active-bg: #eeeeee;
+				--active-text: #080808;
+				--accent: #ff8c61;
+			}
+
+			* {
+				box-sizing: border-box;
+				border-radius: 0;
+				font-family:
+					"JetBrains Mono", "Fira Code", "IBM Plex Mono", "Consolas", "Monaco",
+					"Courier New", monospace;
+			}
+
+			body {
+				margin: 0;
+				min-height: 100vh;
+				background: var(--bg);
+				color: var(--text);
+			}
+
+			a {
+				color: inherit;
+				text-decoration: none;
+			}
+
+			.dashboard-shell {
+				min-height: 100vh;
+				border-top: 4px solid var(--border);
+				border-bottom: 4px solid var(--border);
+				padding: 2.5rem 2.25rem 2rem;
+			}
+
+			.dashboard-header {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 1.5rem;
+				justify-content: space-between;
+				align-items: flex-start;
+				padding-bottom: 1.5rem;
+				border-bottom: 2px solid var(--border);
+			}
+
+			.brand-eyebrow,
+			.category-name,
+			.meta-clock,
+			.panel-actions button,
+			.nav-tab,
+			.system-label {
+				font-size: 0.9rem;
+				letter-spacing: 0.22rem;
+				text-transform: uppercase;
+			}
+
+			.brand-title {
+				margin: 0.35rem 0;
+				font-size: clamp(2.6rem, 7vw, 4.5rem);
+				line-height: 0.9;
+				text-transform: uppercase;
+			}
+
+			.brand-subtitle {
+				margin: 0;
+				font-size: 1.1rem;
+				letter-spacing: 0.28rem;
+				text-transform: uppercase;
+			}
+
+			.header-meta {
+				display: flex;
+				flex-direction: column;
+				gap: 1.35rem;
+				min-width: 21rem;
+			}
+
+			.meta-clock {
+				text-align: right;
+			}
+
+			.nav-tabs {
+				display: grid;
+				grid-template-columns: repeat(4, minmax(0, 1fr));
+				border: 1px solid var(--border);
+			}
+
+			.nav-tab {
+				padding: 0.72rem 1rem;
+				border-right: 1px solid var(--border);
+				text-align: center;
+				background: transparent;
+				color: var(--text);
+			}
+
+			.nav-tab:last-child {
+				border-right: 0;
+			}
+
+			.nav-tab.active {
+				background: var(--active-bg);
+				color: var(--active-text);
+			}
+
+			.dashboard-main {
+				padding-top: 1.2rem;
+			}
+
+			.category-panel {
+				border-top: 1px solid var(--border);
+				padding-top: 1rem;
+				margin-top: 1.2rem;
+			}
+
+			.panel-heading {
+				display: flex;
+				gap: 1rem;
+				justify-content: space-between;
+				align-items: center;
+				padding-bottom: 0.6rem;
+				border-bottom: 1px solid color-mix(in srgb, var(--border), transparent 45%);
+			}
+
+			.category-name {
+				margin: 0;
+			}
+
+			.panel-actions {
+				display: flex;
+				gap: 0.45rem;
+			}
+
+			.panel-actions button,
+			.system-controls button {
+				background: transparent;
+				color: var(--text);
+				border: 1px solid color-mix(in srgb, var(--border), transparent 30%);
+				padding: 0.48rem 0.9rem;
+				cursor: pointer;
+			}
+
+			.link-list {
+				list-style: none;
+				margin: 0;
+				padding: 0;
+			}
+
+			.link-item {
+				display: grid;
+				grid-template-columns: 1.5rem 1fr auto;
+				gap: 0.6rem;
+				padding: 1rem 0;
+				border-bottom: 1px solid color-mix(in srgb, var(--border), transparent 72%);
+			}
+
+			.link-item:hover {
+				background: color-mix(in srgb, var(--text), transparent 95%);
+			}
+
+			.handle {
+				color: var(--text-muted);
+				padding-top: 0.2rem;
+			}
+
+			.link-title {
+				margin: 0;
+				font-size: 1.7rem;
+				line-height: 1;
+				text-transform: uppercase;
+			}
+
+			.link-description {
+				margin: 0.4rem 0 0;
+				color: var(--text-muted);
+				font-size: 1.08rem;
+			}
+
+			.link-favicon {
+				height: 1.8rem;
+				width: 1.8rem;
+				border: 1px solid color-mix(in srgb, var(--border), transparent 15%);
+				object-fit: cover;
+				align-self: center;
+			}
+
+			.system-bar {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 1rem;
+				justify-content: space-between;
+				align-items: center;
+				margin-top: 2.5rem;
+				padding-top: 1.2rem;
+				border-top: 1px solid var(--border);
+			}
+
+			.system-controls {
+				display: flex;
+				gap: 0.45rem;
+			}
+
+			.system-controls .accent {
+				background: var(--accent);
+				color: #f9f9f9;
+				border-color: color-mix(in srgb, var(--accent), #000 25%);
+			}
+
+			@media (max-width: 760px) {
+				.dashboard-shell {
+					padding: 1.2rem 1rem;
+				}
+
+				.header-meta {
+					width: 100%;
+					min-width: 0;
+				}
+
+				.meta-clock {
+					text-align: left;
+				}
+
+				.nav-tabs {
+					grid-template-columns: repeat(2, minmax(0, 1fr));
+				}
+
+				.link-item {
+					grid-template-columns: 1.3rem 1fr;
+				}
+
+				.link-favicon {
+					display: none;
+				}
+			}
+		</style>
 	</head>
 	<body>
-		<h1>Astro</h1>
+		<div class="dashboard-shell">
+			<header class="dashboard-header">
+				<div>
+					<p class="brand-eyebrow">Ops Dashboard</p>
+					<h1 class="brand-title">Command</h1>
+					<p class="brand-subtitle">Mission Control</p>
+				</div>
+
+				<div class="header-meta">
+					<p class="meta-clock" id="clock">
+						{new Date().toLocaleDateString("en-US", {
+							month: "short",
+							day: "2-digit",
+							year: "numeric",
+						}).toUpperCase()}
+						{` ${new Date().toLocaleTimeString("en-US", {
+							hour12: false,
+						})}`}
+					</p>
+					<nav class="nav-tabs" aria-label="Dashboard sections">
+						<button class="nav-tab active" type="button">Work</button>
+						<button class="nav-tab" type="button">Learning</button>
+						<button class="nav-tab" type="button">News</button>
+						<button class="nav-tab" type="button">+</button>
+					</nav>
+				</div>
+			</header>
+
+			<main class="dashboard-main">
+				{
+					categories.map(([category, categoryLinks]) => (
+						<section class="category-panel">
+							<div class="panel-heading">
+								<h2 class="category-name">{category}</h2>
+								<div class="panel-actions">
+									<button type="button">+ Add</button>
+									<button type="button">Del</button>
+								</div>
+							</div>
+
+							<ul class="link-list">
+								{categoryLinks.map((link) => (
+									<li class="link-item">
+										<span class="handle">::</span>
+										<div>
+											<a href={link.url} target="_blank" rel="noreferrer">
+												<h3 class="link-title">{link.title}</h3>
+											</a>
+											<p class="link-description">
+												{link.description ?? "No description yet"}
+											</p>
+										</div>
+										{link.favicon_url ? (
+											<img
+												class="link-favicon"
+												src={link.favicon_url}
+												alt={`${link.title} icon`}
+											/>
+										) : (
+											<div class="link-favicon" aria-hidden="true"></div>
+										)}
+									</li>
+								))}
+							</ul>
+						</section>
+					))
+				}
+			</main>
+
+			<footer class="system-bar">
+				<p class="system-label">Internal Use Only</p>
+				<div class="system-controls">
+					<button type="button">+ Category</button>
+					<button type="button">Delete Panel</button>
+					<button type="button" class="accent" id="theme-toggle">
+						Dark
+					</button>
+				</div>
+			</footer>
+		</div>
+		<script>
+			const root = document.documentElement;
+			root.dataset.theme = "light";
+
+			const clock = document.querySelector("#clock");
+			const toggle = document.querySelector("#theme-toggle");
+
+			const updateClock = () => {
+				const now = new Date();
+				const date = now
+					.toLocaleDateString("en-US", {
+						month: "short",
+						day: "2-digit",
+						year: "numeric",
+					})
+					.toUpperCase();
+				const time = now.toLocaleTimeString("en-US", { hour12: false });
+				if (clock) {
+					clock.textContent = `${date} ${time}`;
+				}
+			};
+
+			toggle?.addEventListener("click", () => {
+				const nextTheme = root.dataset.theme === "dark" ? "light" : "dark";
+				root.dataset.theme = nextTheme;
+				toggle.textContent = nextTheme === "dark" ? "Light" : "Dark";
+			});
+
+			updateClock();
+			setInterval(updateClock, 1000);
+		</script>
 	</body>
 </html>
