@@ -50,3 +50,6 @@ $Recycle.Bin/
 !.vscode/launch.json
 *.sublime-project
 *.sublime-workspace
+
+# Files
+docs/design/

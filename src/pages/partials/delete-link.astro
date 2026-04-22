@@ -1,0 +1,52 @@
+---
+export const partial = true;
+
+import { hasSupabaseCredentials, supabase } from "../../lib/supabase";
+import { categorySlug } from "../../lib/slug";
+
+if (Astro.request.method !== "DELETE") {
+	return new Response("Method Not Allowed", { status: 405 });
+}
+
+const id = new URL(Astro.request.url).searchParams.get("id");
+
+if (!id) {
+	return new Response("Missing id", { status: 400 });
+}
+
+if (!hasSupabaseCredentials || !supabase) {
+	return new Response("Supabase is not configured", { status: 500 });
+}
+
+const { data: deleted, error } = await supabase
+	.from("links")
+	.delete()
+	.eq("id", id)
+	.select("category_name")
+	.single();
+
+if (error || !deleted) {
+	console.error("[delete-link] Supabase delete failed (schema: link_dashboard, table: links)");
+	console.error("[delete-link] id:", id);
+	console.error("[delete-link] error:", {
+		message: error?.message,
+		details: error?.details,
+		hint: error?.hint,
+		code: error?.code,
+	});
+	return new Response(error?.message ?? "Delete failed", { status: 500 });
+}
+
+const slug = categorySlug(deleted.category_name);
+
+const { count: categoryCount } = await supabase
+	.from("links")
+	.select("id", { count: "exact", head: true })
+	.eq("category_name", deleted.category_name);
+---
+<span
+	id={`count-${slug}`}
+	class="category-count"
+	aria-label={`${categoryCount ?? 0} links`}
+	hx-swap-oob="true"
+>({categoryCount ?? 0})</span>

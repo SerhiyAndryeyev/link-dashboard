@@ -1,0 +1,95 @@
+---
+export const partial = true;
+
+import { hasSupabaseCredentials, supabase } from "../../lib/supabase";
+import { categorySlug } from "../../lib/slug";
+
+if (Astro.request.method !== "POST") {
+	return new Response("Method Not Allowed", { status: 405 });
+}
+
+const formData = await Astro.request.formData();
+const category_name = String(formData.get("category_name") ?? "").trim();
+const title = String(formData.get("title") ?? "").trim();
+const url = String(formData.get("url") ?? "").trim();
+const description = String(formData.get("description") ?? "").trim() || null;
+const favicon_url = String(formData.get("favicon_url") ?? "").trim() || null;
+
+if (!category_name || !title || !url) {
+	return new Response("Missing required fields", { status: 400 });
+}
+
+if (!hasSupabaseCredentials || !supabase) {
+	console.error("[add-link] Supabase credentials missing. Check .env values.");
+	return new Response("Supabase is not configured", { status: 500 });
+}
+
+const payload = { category_name, title, url, description, favicon_url };
+
+const { data, error } = await supabase
+	.from("links")
+	.insert(payload)
+	.select("id, category_name, title, url, description, favicon_url")
+	.single();
+
+if (error || !data) {
+	console.error("[add-link] Supabase insert failed (schema: link_dashboard, table: links)");
+	console.error("[add-link] payload:", payload);
+	console.error("[add-link] error:", {
+		message: error?.message,
+		details: error?.details,
+		hint: error?.hint,
+		code: error?.code,
+	});
+	return new Response(error?.message ?? "Insert failed", { status: 500 });
+}
+
+const slug = categorySlug(data.category_name);
+const oobTarget = `afterbegin:#list-${slug}`;
+
+const { count: categoryCount } = await supabase
+	.from("links")
+	.select("id", { count: "exact", head: true })
+	.eq("category_name", data.category_name);
+---
+<li
+	class="link-item"
+	hx-swap-oob={oobTarget}
+	data-link-id={data.id}
+>
+	<span class="handle" aria-hidden="true">⠿</span>
+	<div>
+		<a href={data.url} target="_blank" rel="noreferrer">
+			<h3 class="link-title">{data.title}</h3>
+		</a>
+		<p class="link-description">
+			{data.description ?? "No description yet"}
+		</p>
+	</div>
+	{data.favicon_url ? (
+		<img
+			class="link-favicon"
+			src={data.favicon_url}
+			alt={`${data.title} icon`}
+		/>
+	) : (
+		<div class="link-favicon" aria-hidden="true"></div>
+	)}
+	<button
+		type="button"
+		class="link-delete"
+		aria-label={`Delete ${data.title}`}
+		hx-delete={`/partials/delete-link?id=${data.id}`}
+		hx-target="closest .link-item"
+		hx-swap="outerHTML swap:300ms"
+		hx-confirm={`Delete "${data.title}"?`}
+	>
+		×
+	</button>
+</li>
+<span
+	id={`count-${slug}`}
+	class="category-count"
+	aria-label={`${categoryCount ?? 0} links`}
+	hx-swap-oob="true"
+>({categoryCount ?? 0})</span>
