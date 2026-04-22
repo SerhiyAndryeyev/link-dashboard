@@ -13,7 +13,6 @@ const category_name = String(formData.get("category_name") ?? "").trim();
 const title = String(formData.get("title") ?? "").trim();
 const url = String(formData.get("url") ?? "").trim();
 const description = String(formData.get("description") ?? "").trim() || null;
-const favicon_url = String(formData.get("favicon_url") ?? "").trim() || null;
 
 if (!category_name || !title || !url) {
 	return new Response("Missing required fields", { status: 400 });
@@ -24,12 +23,12 @@ if (!hasSupabaseCredentials || !supabase) {
 	return new Response("Supabase is not configured", { status: 500 });
 }
 
-const payload = { category_name, title, url, description, favicon_url };
+const payload = { category_name, title, url, description };
 
 const { data, error } = await supabase
 	.from("links")
 	.insert(payload)
-	.select("id, category_name, title, url, description, favicon_url")
+	.select("id, category_name, title, url, description")
 	.single();
 
 if (error || !data) {
@@ -52,41 +51,33 @@ const { count: categoryCount } = await supabase
 	.select("id", { count: "exact", head: true })
 	.eq("category_name", data.category_name);
 ---
-<li
-	class="link-item"
-	hx-swap-oob={oobTarget}
-	data-link-id={data.id}
->
-	<span class="handle" aria-hidden="true">⠿</span>
-	<div>
-		<a href={data.url} target="_blank" rel="noreferrer">
-			<h3 class="link-title">{data.title}</h3>
-		</a>
-		<p class="link-description">
-			{data.description ?? "No description yet"}
-		</p>
-	</div>
-	{data.favicon_url ? (
-		<img
-			class="link-favicon"
-			src={data.favicon_url}
-			alt={`${data.title} icon`}
-		/>
-	) : (
-		<div class="link-favicon" aria-hidden="true"></div>
-	)}
-	<button
-		type="button"
-		class="link-delete"
-		aria-label={`Delete ${data.title}`}
-		hx-delete={`/partials/delete-link?id=${data.id}`}
-		hx-target="closest .link-item"
-		hx-swap="outerHTML swap:300ms"
-		hx-confirm={`Delete "${data.title}"?`}
+<ul hx-swap-oob={oobTarget}>
+	<li
+		class="link-item"
+		data-link-id={data.id}
 	>
-		×
-	</button>
-</li>
+		<span class="handle" aria-hidden="true">⠿</span>
+		<div>
+			<a href={data.url} target="_blank" rel="noreferrer">
+				<h3 class="link-title">{data.title}</h3>
+			</a>
+			<p class="link-description">
+				{data.description ?? "No description yet"}
+			</p>
+		</div>
+		<button
+			type="button"
+			class="link-delete"
+			aria-label={`Delete ${data.title}`}
+			hx-delete={`/partials/delete-link?id=${data.id}`}
+			hx-target="closest .link-item"
+			hx-swap="outerHTML swap:300ms"
+			hx-confirm={`Delete "${data.title}"?`}
+		>
+			×
+		</button>
+	</li>
+</ul>
 <span
 	id={`count-${slug}`}
 	class="category-count"

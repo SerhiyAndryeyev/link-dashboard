@@ -8,7 +8,6 @@ type DashboardLink = {
 	title: string;
 	url: string;
 	description: string | null;
-	favicon_url: string | null;
 };
 
 type EmptyStateKind = "unconfigured" | "error" | "empty" | "ok";
@@ -22,7 +21,7 @@ if (!hasSupabaseCredentials || !supabase) {
 } else {
 	const { data, error } = await supabase
 		.from("links")
-		.select("id, category_name, title, url, description, favicon_url")
+		.select("id, category_name, title, url, description")
 		.order("category_name", { ascending: true })
 		.order("created_at", { ascending: false });
 
@@ -51,6 +50,7 @@ const groupedLinks = links.reduce((accumulator, link) => {
 }, {} as Record<string, DashboardLink[]>);
 
 const categories = Object.entries(groupedLinks);
+const categoryNames = categories.map(([name]) => name);
 ---
 
 <html lang="en">
@@ -256,7 +256,7 @@ const categories = Object.entries(groupedLinks);
 
 			.link-item {
 				display: grid;
-				grid-template-columns: 1.5rem 1fr auto 2.2rem;
+				grid-template-columns: 1.5rem 1fr 2.2rem;
 				gap: 0.6rem;
 				padding: 1rem 0;
 				border-bottom: 1px solid color-mix(in srgb, var(--border), transparent 72%);
@@ -302,14 +302,6 @@ const categories = Object.entries(groupedLinks);
 				margin: 0.4rem 0 0;
 				color: var(--text-muted);
 				font-size: 1.08rem;
-			}
-
-			.link-favicon {
-				height: 1.8rem;
-				width: 1.8rem;
-				border: 1px solid color-mix(in srgb, var(--border), transparent 15%);
-				object-fit: cover;
-				align-self: center;
 			}
 
 			.link-delete {
@@ -461,7 +453,8 @@ const categories = Object.entries(groupedLinks);
 			}
 
 			.modal-field input,
-			.modal-field textarea {
+			.modal-field textarea,
+			.modal-field select {
 				font: inherit;
 				padding: 0.55rem 0.7rem;
 				background: var(--bg);
@@ -470,7 +463,50 @@ const categories = Object.entries(groupedLinks);
 			}
 
 			.modal-field input:focus,
-			.modal-field textarea:focus {
+			.modal-field textarea:focus,
+			.modal-field select:focus {
+				outline: 2px solid var(--accent);
+				outline-offset: -2px;
+			}
+
+			.modal-select {
+				appearance: none;
+				-webkit-appearance: none;
+				background-image: linear-gradient(45deg, transparent 50%, var(--text) 50%),
+					linear-gradient(135deg, var(--text) 50%, transparent 50%);
+				background-position: calc(100% - 1rem) 50%, calc(100% - 0.65rem) 50%;
+				background-size: 0.35rem 0.35rem, 0.35rem 0.35rem;
+				background-repeat: no-repeat;
+				padding-right: 2rem;
+			}
+
+			.modal-error {
+				margin: 0;
+				padding: 0.55rem 0.7rem;
+				border: 1px solid var(--accent);
+				color: var(--accent);
+				font-size: 0.8rem;
+				letter-spacing: 0.14rem;
+				text-transform: uppercase;
+			}
+
+			.category-label {
+				cursor: text;
+			}
+
+			.category-rename-input {
+				font: inherit;
+				font-size: 0.9rem;
+				letter-spacing: 0.22rem;
+				text-transform: uppercase;
+				padding: 0.2rem 0.4rem;
+				background: var(--bg);
+				color: var(--text);
+				border: 1px solid var(--accent);
+				min-width: 12rem;
+			}
+
+			.category-rename-input:focus {
 				outline: 2px solid var(--accent);
 				outline-offset: -2px;
 			}
@@ -518,15 +554,12 @@ const categories = Object.entries(groupedLinks);
 				.link-item {
 					grid-template-columns: 1.3rem 1fr 2rem;
 				}
-
-				.link-favicon {
-					display: none;
-				}
 			}
 		</style>
 	</head>
 	<body
 		x-data="dashboard()"
+		data-categories={JSON.stringify(categoryNames)}
 		@keydown.escape.window="closeAll()"
 	>
 		<div class="dashboard-shell">
@@ -610,20 +643,45 @@ const categories = Object.entries(groupedLinks);
 					categories.map(([category, categoryLinks]) => {
 						const slug = categorySlug(category);
 						return (
-							<section class="category-panel" data-category={category}>
-								<div class="panel-heading">
+							<section
+								class="category-panel"
+								data-category={category}
+								data-slug={slug}
+							>
+								<div
+									class="panel-heading"
+									x-data="categoryHeading"
+									data-category={category}
+									data-slug={slug}
+								>
 									<h2 class="category-name">
-										<span>{category}</span>
+										<span
+											class="category-label"
+											x-show="!editing"
+											@dblclick="start()"
+											title="Double-click to rename"
+										>{category}</span>
+										<input
+											x-show="editing"
+											x-cloak
+											x-ref="input"
+											class="category-rename-input"
+											:value="current"
+											@keydown.enter.prevent="commit($event.target.value)"
+											@keydown.escape.prevent="cancel()"
+											@blur="commit($event.target.value)"
+										/>
 										<span
 											id={`count-${slug}`}
 											class="category-count"
 											aria-label={`${categoryLinks.length} links`}
+											x-show="!editing"
 										>({categoryLinks.length})</span>
 									</h2>
-									<div class="panel-actions">
+									<div class="panel-actions" x-show="!editing">
 										<button
 											type="button"
-											class="btn-accent"
+											class="btn-accent panel-add-btn"
 											data-action="add-link"
 											data-category={category}
 										>
@@ -645,15 +703,6 @@ const categories = Object.entries(groupedLinks);
 													{link.description ?? "No description yet"}
 												</p>
 											</div>
-											{link.favicon_url ? (
-												<img
-													class="link-favicon"
-													src={link.favicon_url}
-													alt={`${link.title} icon`}
-												/>
-											) : (
-												<div class="link-favicon" aria-hidden="true" />
-											)}
 											<button
 												type="button"
 												class="link-delete"
@@ -705,30 +754,66 @@ const categories = Object.entries(groupedLinks);
 		>
 			<div class="modal" @click.stop>
 				<h3 class="modal-title" id="add-link-title">Add Link</h3>
-				<p class="modal-subtitle" x-text="'Category : ' + linkModalCategory"></p>
 				<form
 					id="add-link-form"
 					hx-post="/partials/add-link"
 					hx-swap="none"
+					novalidate
+					@htmx:before-request="if (!validateLinkForm()) $event.preventDefault()"
 					@htmx:after-request="onLinkSubmitted($event)"
 				>
-					<input type="hidden" name="category_name" x-bind:value="linkModalCategory" />
 					<div class="modal-field">
-						<label for="link-title">Title</label>
-						<input id="link-title" name="title" type="text" required autocomplete="off" />
-					</div>
-					<div class="modal-field">
-						<label for="link-url">URL</label>
-						<input id="link-url" name="url" type="url" required placeholder="https://" autocomplete="off" />
+						<label for="link-title">Name</label>
+						<input
+							id="link-title"
+							name="title"
+							type="text"
+							placeholder="Link name"
+							autocomplete="off"
+							@input="linkError = null"
+						/>
 					</div>
 					<div class="modal-field">
 						<label for="link-description">Description</label>
-						<input id="link-description" name="description" type="text" autocomplete="off" />
+						<input
+							id="link-description"
+							name="description"
+							type="text"
+							placeholder="Short description"
+							autocomplete="off"
+						/>
 					</div>
 					<div class="modal-field">
-						<label for="link-favicon">Favicon URL</label>
-						<input id="link-favicon" name="favicon_url" type="url" autocomplete="off" />
+						<label for="link-url">URL</label>
+						<input
+							id="link-url"
+							name="url"
+							type="url"
+							placeholder="https://..."
+							autocomplete="off"
+							@input="linkError = null"
+						/>
 					</div>
+					<div class="modal-field">
+						<label for="link-category">Category</label>
+						<select
+							id="link-category"
+							name="category_name"
+							class="modal-select"
+							x-model="linkModalCategory"
+						>
+							<template x-for="cat in allCategories" :key="cat">
+								<option :value="cat" x-text="cat"></option>
+							</template>
+						</select>
+					</div>
+					<p
+						class="modal-error"
+						x-show="linkError"
+						x-cloak
+						x-text="linkError"
+						role="alert"
+					></p>
 					<div class="modal-actions">
 						<button type="button" class="btn-outline" @click="linkModal = false">
 							Cancel
@@ -778,14 +863,33 @@ const categories = Object.entries(groupedLinks);
 		</div>
 
 		<script is:inline>
+			function slugifyCategory(name) {
+				return (
+					(name || "uncategorized")
+						.toLowerCase()
+						.replace(/[^a-z0-9]+/g, "-")
+						.replace(/^-+|-+$/g, "") || "uncategorized"
+				);
+			}
+
 			document.addEventListener("alpine:init", () => {
 				window.Alpine.data("dashboard", () => ({
 					linkModal: false,
 					linkModalCategory: "",
+					linkError: null,
 					categoryModal: false,
 					categoryModalName: "",
+					allCategories: [],
 
 					init() {
+						try {
+							this.allCategories = JSON.parse(
+								document.body.dataset.categories || "[]"
+							);
+						} catch {
+							this.allCategories = [];
+						}
+
 						document.addEventListener("click", (event) => {
 							const trigger = event.target.closest("[data-action]");
 							if (!trigger) return;
@@ -796,10 +900,25 @@ const categories = Object.entries(groupedLinks);
 								this.openCategoryModal();
 							}
 						});
+
+						window.addEventListener("category-renamed", (event) => {
+							const { oldName, newName } = event.detail;
+							this.allCategories = this.allCategories.map((c) =>
+								c === oldName ? newName : c
+							);
+							if (this.linkModalCategory === oldName) {
+								this.linkModalCategory = newName;
+							}
+						});
 					},
 
 					openLinkModal(category) {
-						this.linkModalCategory = category;
+						if (category && !this.allCategories.includes(category)) {
+							this.allCategories = [...this.allCategories, category];
+						}
+						this.linkModalCategory =
+							category || this.allCategories[0] || "";
+						this.linkError = null;
 						this.linkModal = true;
 						this.$nextTick(() => {
 							document.getElementById("link-title")?.focus();
@@ -826,13 +945,138 @@ const categories = Object.entries(groupedLinks);
 						this.categoryModal = false;
 					},
 
+					validateLinkForm() {
+						const form = document.getElementById("add-link-form");
+						if (!form) return false;
+						const fd = new FormData(form);
+						const name = String(fd.get("title") ?? "").trim();
+						const url = String(fd.get("url") ?? "").trim();
+						const category = String(fd.get("category_name") ?? "").trim();
+						if (!name && !url) {
+							this.linkError = "Name and URL are required.";
+							return false;
+						}
+						if (!name) {
+							this.linkError = "Name is required.";
+							return false;
+						}
+						if (!url) {
+							this.linkError = "URL is required.";
+							return false;
+						}
+						if (!/^https?:\/\/.+/i.test(url)) {
+							this.linkError = "URL must start with http:// or https://";
+							return false;
+						}
+						if (!category) {
+							this.linkError = "Category is required.";
+							return false;
+						}
+						this.linkError = null;
+						return true;
+					},
+
 					onLinkSubmitted(event) {
 						const detail = event.detail;
 						if (detail && detail.successful) {
 							const form = document.getElementById("add-link-form");
 							form?.reset();
 							this.linkModal = false;
+							this.linkError = null;
 						}
+					},
+				}));
+
+				window.Alpine.data("categoryHeading", () => ({
+					editing: false,
+					current: "",
+					rootEl: null,
+
+					init() {
+						this.rootEl = this.$el;
+						this.current = this.$el.dataset.category || "";
+					},
+
+					start() {
+						this.editing = true;
+						this.$nextTick(() => {
+							const input = this.$refs.input;
+							if (input) {
+								input.focus();
+								input.select();
+							}
+						});
+					},
+
+					cancel() {
+						this.editing = false;
+					},
+
+					async commit(rawValue) {
+						const newName = (rawValue || "").trim();
+						if (!newName || newName === this.current) {
+							this.editing = false;
+							return;
+						}
+
+						const oldName = this.current;
+						const headingEl = this.rootEl;
+
+						const fd = new FormData();
+						fd.append("old_name", oldName);
+						fd.append("new_name", newName);
+
+						let res;
+						try {
+							res = await fetch("/partials/rename-category", {
+								method: "POST",
+								body: fd,
+							});
+						} catch (err) {
+							alert("Network error: " + err.message);
+							this.editing = false;
+							return;
+						}
+
+						if (!res.ok) {
+							const msg = (await res.text()) || "Rename failed.";
+							alert(msg);
+							this.editing = false;
+							return;
+						}
+
+						const oldSlug = headingEl.dataset.slug;
+						const newSlug = slugifyCategory(newName);
+
+						const label = headingEl.querySelector(".category-label");
+						if (label) label.textContent = newName;
+
+						const section = headingEl.closest("section.category-panel");
+						if (section) {
+							section.dataset.category = newName;
+							section.dataset.slug = newSlug;
+						}
+
+						const list = document.getElementById(`list-${oldSlug}`);
+						if (list) list.id = `list-${newSlug}`;
+
+						const count = document.getElementById(`count-${oldSlug}`);
+						if (count) count.id = `count-${newSlug}`;
+
+						headingEl.dataset.category = newName;
+						headingEl.dataset.slug = newSlug;
+
+						const addBtn = headingEl.querySelector(".panel-add-btn");
+						if (addBtn) addBtn.dataset.category = newName;
+
+						window.dispatchEvent(
+							new CustomEvent("category-renamed", {
+								detail: { oldName, newName },
+							})
+						);
+
+						this.current = newName;
+						this.editing = false;
 					},
 				}));
 			});

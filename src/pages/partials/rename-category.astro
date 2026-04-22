@@ -1,0 +1,62 @@
+---
+export const partial = true;
+
+import { hasSupabaseCredentials, supabase } from "../../lib/supabase";
+
+if (Astro.request.method !== "POST") {
+	return new Response("Method Not Allowed", { status: 405 });
+}
+
+const formData = await Astro.request.formData();
+const oldName = String(formData.get("old_name") ?? "").trim();
+const newName = String(formData.get("new_name") ?? "").trim();
+
+if (!oldName || !newName) {
+	return new Response("Both old_name and new_name are required.", { status: 400 });
+}
+
+if (oldName === newName) {
+	return new Response("", { status: 200 });
+}
+
+if (!hasSupabaseCredentials || !supabase) {
+	console.error("[rename-category] Supabase credentials missing.");
+	return new Response("Supabase is not configured", { status: 500 });
+}
+
+const { count: conflictCount, error: conflictError } = await supabase
+	.from("links")
+	.select("id", { count: "exact", head: true })
+	.eq("category_name", newName);
+
+if (conflictError) {
+	console.error("[rename-category] conflict check failed:", conflictError);
+	return new Response(conflictError.message, { status: 500 });
+}
+
+if ((conflictCount ?? 0) > 0) {
+	return new Response(
+		`A category named "${newName}" already exists. Pick a different name.`,
+		{ status: 409 }
+	);
+}
+
+const { error: updateError } = await supabase
+	.from("links")
+	.update({ category_name: newName })
+	.eq("category_name", oldName);
+
+if (updateError) {
+	console.error("[rename-category] Supabase update failed (schema: link_dashboard, table: links)");
+	console.error("[rename-category] old:", oldName, "new:", newName);
+	console.error("[rename-category] error:", {
+		message: updateError.message,
+		details: updateError.details,
+		hint: updateError.hint,
+		code: updateError.code,
+	});
+	return new Response(updateError.message, { status: 500 });
+}
+
+return new Response("", { status: 200 });
+---

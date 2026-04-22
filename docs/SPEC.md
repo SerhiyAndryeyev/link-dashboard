@@ -19,7 +19,6 @@
   - `title`: TEXT (Display name of the link).
   - `url`: TEXT (Destination URL).
   - `description`: TEXT (Short description/notes).
-  - `favicon_url`: TEXT (URL to the site's icon).
   - `created_at`: TIMESTAMPTZ (default: `now()`).
 
 ## 3. Visual Design & Color Palettes
@@ -32,7 +31,7 @@ Reference: `docs/DESIGN.md`
 - **Header**: Large bold title "COMMAND", subtitle "MISSION CONTROL", and a real-time clock.
 - **Navigation**: Blocky uppercase tabs (e.g., WORK, LEARNING, NEWS). Active tab has inverted colors.
 - **Category Panels**: Horizontal sections with a header containing `+ ADD` and `DEL` buttons.
-- **Link Cards**: Minimalist layout with title, description, and favicon.
+- **Link Cards**: Minimalist layout with title and description.
 - **Modals**: Centered overlays with sharp 1px borders and high-contrast input fields.
 
 ## 5. Development Logic (AHA Stack)
