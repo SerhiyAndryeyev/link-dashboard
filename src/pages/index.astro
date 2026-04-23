@@ -20,6 +20,7 @@ const requestedPanel = Astro.url.searchParams.get("panel")?.trim() || null;
 let links: DashboardLink[] = [];
 let allPanels: string[] = [...DEFAULT_PANELS];
 let activePanel: string = requestedPanel || DEFAULT_PANELS[0];
+let categoriesByPanel: Record<string, string[]> = {};
 let emptyState: EmptyStateKind = "ok";
 let errorMessage: string | null = null;
 
@@ -28,7 +29,7 @@ if (!hasSupabaseCredentials || !supabase) {
 } else {
 	const { data: panelData, error: panelError } = await supabase
 		.from("links")
-		.select("panel_name");
+		.select("panel_name, category_name");
 
 	if (panelError) {
 		console.error("[index] Panel discovery failed:", panelError);
@@ -43,6 +44,19 @@ if (!hasSupabaseCredentials || !supabase) {
 			allPanels = [...allPanels, requestedPanel];
 		}
 		activePanel = requestedPanel || DEFAULT_PANELS[0];
+	}
+
+	for (const row of panelData ?? []) {
+		const panel = row.panel_name;
+		const category = row.category_name;
+		if (!panel || !category) continue;
+		if (!categoriesByPanel[panel]) categoriesByPanel[panel] = [];
+		if (!categoriesByPanel[panel].includes(category)) {
+			categoriesByPanel[panel].push(category);
+		}
+	}
+	for (const key of Object.keys(categoriesByPanel)) {
+		categoriesByPanel[key].sort((a, b) => a.localeCompare(b));
 	}
 
 	if (emptyState === "ok") {
@@ -622,6 +636,7 @@ const categoryNames = categories.map(([name]) => name);
 		data-categories={JSON.stringify(categoryNames)}
 		data-panels={JSON.stringify(allPanels)}
 		data-active-panel={activePanel}
+		data-categories-by-panel={JSON.stringify(categoriesByPanel)}
 		@keydown.escape.window="closeAll()"
 	>
 		<div class="dashboard-shell">
@@ -673,10 +688,10 @@ const categoryNames = categories.map(([name]) => name);
 					<section id="empty-state" class="empty-state" data-state={emptyState}>
 						<p class="empty-state-eyebrow">
 							{emptyState === "unconfigured"
-								? "System :: Offline"
+								? "System Offline"
 								: emptyState === "error"
-									? "System :: Error"
-									: "System :: Empty"}
+									? "System Error"
+									: "System Empty"}
 						</p>
 						<h2 class="empty-state-title">
 							{emptyState === "unconfigured"
@@ -1017,6 +1032,7 @@ const categoryNames = categories.map(([name]) => name);
 							name="panel_name"
 							class="modal-select"
 							x-model="editModalData.panel_name"
+							@change="onEditPanelChange()"
 						>
 							<template x-for="p in allPanels" :key="p">
 								<option :value="p" x-text="p"></option>
@@ -1025,20 +1041,20 @@ const categoryNames = categories.map(([name]) => name);
 					</div>
 					<div class="modal-field">
 						<label for="edit-link-category">Category</label>
-						<input
+						<select
 							id="edit-link-category"
 							name="category_name"
-							type="text"
+							class="modal-select"
 							x-model="editModalData.category_name"
-							@input="editError = null"
-							list="edit-link-category-options"
-							autocomplete="off"
-						/>
-						<datalist id="edit-link-category-options">
-							<template x-for="cat in allCategories" :key="cat">
-								<option :value="cat"></option>
+							@change="editError = null"
+						>
+							<template x-if="editCategoryOptions.length === 0">
+								<option value="" disabled>No categories in this panel — add a link first</option>
 							</template>
-						</datalist>
+							<template x-for="cat in editCategoryOptions" :key="cat">
+								<option :value="cat" x-text="cat"></option>
+							</template>
+						</select>
 					</div>
 					<p
 						class="modal-error"
@@ -1245,6 +1261,8 @@ const categoryNames = categories.map(([name]) => name);
 					editError: null,
 					allCategories: [],
 					allPanels: [],
+					categoriesByPanel: {},
+					editCategoryOptions: [],
 					activePanelName: "",
 
 					init() {
@@ -1261,6 +1279,13 @@ const categoryNames = categories.map(([name]) => name);
 							);
 						} catch {
 							this.allPanels = [];
+						}
+						try {
+							this.categoriesByPanel = JSON.parse(
+								document.body.dataset.categoriesByPanel || "{}"
+							);
+						} catch {
+							this.categoriesByPanel = {};
 						}
 						this.activePanelName =
 							document.body.dataset.activePanel || this.allPanels[0] || "";
@@ -1369,11 +1394,29 @@ const categoryNames = categories.map(([name]) => name);
 							panel_name: link.panel_name,
 							category_name: link.category_name,
 						};
+						this.editCategoryOptions = (
+							this.categoriesByPanel[link.panel_name] || []
+						).slice();
 						this.editError = null;
 						this.editModal = true;
 						this.$nextTick(() => {
 							document.getElementById("edit-link-title-input")?.focus();
 						});
+					},
+
+					onEditPanelChange() {
+						this.editError = null;
+						this.editCategoryOptions = (
+							this.categoriesByPanel[this.editModalData.panel_name] || []
+						).slice();
+						if (
+							!this.editCategoryOptions.includes(
+								this.editModalData.category_name
+							)
+						) {
+							this.editModalData.category_name =
+								this.editCategoryOptions[0] || "";
+						}
 					},
 
 					async submitEditLink() {
