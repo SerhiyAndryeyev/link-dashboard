@@ -491,24 +491,21 @@ const categoryNames = categories.map(([name]) => name);
 			}
 
 			.category-label {
-				cursor: text;
-			}
-
-			.category-rename-input {
+				cursor: pointer;
+				background: transparent;
+				color: inherit;
 				font: inherit;
-				font-size: 0.9rem;
-				letter-spacing: 0.22rem;
-				text-transform: uppercase;
-				padding: 0.2rem 0.4rem;
-				background: var(--bg);
-				color: var(--text);
-				border: 1px solid var(--accent);
-				min-width: 12rem;
+				letter-spacing: inherit;
+				text-transform: inherit;
+				border: 0;
+				padding: 0;
+				margin: 0;
 			}
 
-			.category-rename-input:focus {
-				outline: 2px solid var(--accent);
-				outline-offset: -2px;
+			.category-label:hover,
+			.category-label:focus-visible {
+				background: color-mix(in srgb, var(--accent), transparent 70%);
+				outline: none;
 			}
 
 			.modal-actions {
@@ -648,48 +645,37 @@ const categoryNames = categories.map(([name]) => name);
 								data-category={category}
 								data-slug={slug}
 							>
-								<div
-									class="panel-heading"
-									x-data="categoryHeading"
-									data-category={category}
-									data-slug={slug}
-								>
-									<h2 class="category-name">
-										<span
-											class="category-label"
-											x-show="!editing"
-											@dblclick="start()"
-											title="Double-click to rename"
-										>{category}</span>
-										<input
-											x-show="editing"
-											x-cloak
-											x-ref="input"
-											class="category-rename-input"
-											:value="current"
-											@keydown.enter.prevent="commit($event.target.value)"
-											@keydown.escape.prevent="cancel()"
-											@blur="commit($event.target.value)"
-										/>
-										<span
-											id={`count-${slug}`}
-											class="category-count"
-											aria-label={`${categoryLinks.length} links`}
-											x-show="!editing"
-										>({categoryLinks.length})</span>
-									</h2>
-									<div class="panel-actions" x-show="!editing">
-										<button
-											type="button"
-											class="btn-accent panel-add-btn"
-											data-action="add-link"
-											data-category={category}
-										>
-											+ Add
-										</button>
-										<button type="button">Del</button>
-									</div>
+							<div
+								class="panel-heading"
+								data-category={category}
+								data-slug={slug}
+							>
+								<h2 class="category-name">
+									<button
+										type="button"
+										class="category-label"
+										data-action="rename-category"
+										data-category={category}
+										title="Click to rename"
+									>{category}</button>
+									<span
+										id={`count-${slug}`}
+										class="category-count"
+										aria-label={`${categoryLinks.length} links`}
+									>({categoryLinks.length})</span>
+								</h2>
+								<div class="panel-actions">
+									<button
+										type="button"
+										class="btn-accent panel-add-btn"
+										data-action="add-link"
+										data-category={category}
+									>
+										+ Add
+									</button>
+									<button type="button">Del</button>
 								</div>
+							</div>
 
 								<ul class="link-list" id={`list-${slug}`}>
 									{categoryLinks.map((link) => (
@@ -862,6 +848,49 @@ const categoryNames = categories.map(([name]) => name);
 			</div>
 		</div>
 
+		<!-- RENAME CATEGORY MODAL -->
+		<div
+			x-show="renameModal"
+			x-cloak
+			x-transition.opacity
+			class="modal-overlay"
+			@click.self="renameModal = false"
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="rename-category-title"
+		>
+			<div class="modal" @click.stop>
+				<h3 class="modal-title" id="rename-category-title">Rename Category</h3>
+				<form @submit.prevent="submitRename()">
+					<div class="modal-field">
+						<label for="rename-category-name">Name</label>
+						<input
+							id="rename-category-name"
+							name="name"
+							type="text"
+							x-model="renameModalName"
+							@input="renameError = null"
+							required
+							autocomplete="off"
+						/>
+					</div>
+					<p
+						class="modal-error"
+						x-show="renameError"
+						x-cloak
+						x-text="renameError"
+						role="alert"
+					></p>
+					<div class="modal-actions">
+						<button type="button" class="btn-outline" @click="renameModal = false">
+							Cancel
+						</button>
+						<button type="submit" class="btn-accent">Rename</button>
+					</div>
+				</form>
+			</div>
+		</div>
+
 		<script is:inline>
 			function slugifyCategory(name) {
 				return (
@@ -879,6 +908,10 @@ const categoryNames = categories.map(([name]) => name);
 					linkError: null,
 					categoryModal: false,
 					categoryModalName: "",
+					renameModal: false,
+					renameModalOldName: "",
+					renameModalName: "",
+					renameError: null,
 					allCategories: [],
 
 					init() {
@@ -898,6 +931,8 @@ const categoryNames = categories.map(([name]) => name);
 								this.openLinkModal(trigger.dataset.category || "");
 							} else if (action === "add-category") {
 								this.openCategoryModal();
+							} else if (action === "rename-category") {
+								this.openRenameModal(trigger.dataset.category || "");
 							}
 						});
 
@@ -940,9 +975,99 @@ const categoryNames = categories.map(([name]) => name);
 						this.openLinkModal(name);
 					},
 
+					openRenameModal(category) {
+						if (!category) return;
+						this.renameModalOldName = category;
+						this.renameModalName = category;
+						this.renameError = null;
+						this.renameModal = true;
+						this.$nextTick(() => {
+							const input = document.getElementById("rename-category-name");
+							if (input) {
+								input.focus();
+								input.select();
+							}
+						});
+					},
+
+					async submitRename() {
+						const oldName = this.renameModalOldName;
+						const newName = this.renameModalName.trim();
+						if (!newName) {
+							this.renameError = "Name is required.";
+							return;
+						}
+						if (newName === oldName) {
+							this.renameModal = false;
+							return;
+						}
+
+						const fd = new FormData();
+						fd.append("old_name", oldName);
+						fd.append("new_name", newName);
+
+						let res;
+						try {
+							res = await fetch("/partials/rename-category", {
+								method: "POST",
+								body: fd,
+							});
+						} catch (err) {
+							this.renameError = "Network error: " + err.message;
+							return;
+						}
+
+						if (!res.ok) {
+							this.renameError = (await res.text()) || "Rename failed.";
+							return;
+						}
+
+						const section = document.querySelector(
+							`section.category-panel[data-category="${CSS.escape(oldName)}"]`
+						);
+						if (section) {
+							const oldSlug = section.dataset.slug;
+							const newSlug = slugifyCategory(newName);
+
+							section.dataset.category = newName;
+							section.dataset.slug = newSlug;
+
+							const heading = section.querySelector(".panel-heading");
+							if (heading) {
+								heading.dataset.category = newName;
+								heading.dataset.slug = newSlug;
+							}
+
+							const label = section.querySelector(".category-label");
+							if (label) {
+								label.textContent = newName;
+								label.dataset.category = newName;
+							}
+
+							const list = document.getElementById(`list-${oldSlug}`);
+							if (list) list.id = `list-${newSlug}`;
+
+							const count = document.getElementById(`count-${oldSlug}`);
+							if (count) count.id = `count-${newSlug}`;
+
+							const addBtn = section.querySelector(".panel-add-btn");
+							if (addBtn) addBtn.dataset.category = newName;
+						}
+
+						window.dispatchEvent(
+							new CustomEvent("category-renamed", {
+								detail: { oldName, newName },
+							})
+						);
+
+						this.renameModal = false;
+						this.renameError = null;
+					},
+
 					closeAll() {
 						this.linkModal = false;
 						this.categoryModal = false;
+						this.renameModal = false;
 					},
 
 					validateLinkForm() {
@@ -984,99 +1109,6 @@ const categoryNames = categories.map(([name]) => name);
 							this.linkModal = false;
 							this.linkError = null;
 						}
-					},
-				}));
-
-				window.Alpine.data("categoryHeading", () => ({
-					editing: false,
-					current: "",
-					rootEl: null,
-
-					init() {
-						this.rootEl = this.$el;
-						this.current = this.$el.dataset.category || "";
-					},
-
-					start() {
-						this.editing = true;
-						this.$nextTick(() => {
-							const input = this.$refs.input;
-							if (input) {
-								input.focus();
-								input.select();
-							}
-						});
-					},
-
-					cancel() {
-						this.editing = false;
-					},
-
-					async commit(rawValue) {
-						const newName = (rawValue || "").trim();
-						if (!newName || newName === this.current) {
-							this.editing = false;
-							return;
-						}
-
-						const oldName = this.current;
-						const headingEl = this.rootEl;
-
-						const fd = new FormData();
-						fd.append("old_name", oldName);
-						fd.append("new_name", newName);
-
-						let res;
-						try {
-							res = await fetch("/partials/rename-category", {
-								method: "POST",
-								body: fd,
-							});
-						} catch (err) {
-							alert("Network error: " + err.message);
-							this.editing = false;
-							return;
-						}
-
-						if (!res.ok) {
-							const msg = (await res.text()) || "Rename failed.";
-							alert(msg);
-							this.editing = false;
-							return;
-						}
-
-						const oldSlug = headingEl.dataset.slug;
-						const newSlug = slugifyCategory(newName);
-
-						const label = headingEl.querySelector(".category-label");
-						if (label) label.textContent = newName;
-
-						const section = headingEl.closest("section.category-panel");
-						if (section) {
-							section.dataset.category = newName;
-							section.dataset.slug = newSlug;
-						}
-
-						const list = document.getElementById(`list-${oldSlug}`);
-						if (list) list.id = `list-${newSlug}`;
-
-						const count = document.getElementById(`count-${oldSlug}`);
-						if (count) count.id = `count-${newSlug}`;
-
-						headingEl.dataset.category = newName;
-						headingEl.dataset.slug = newSlug;
-
-						const addBtn = headingEl.querySelector(".panel-add-btn");
-						if (addBtn) addBtn.dataset.category = newName;
-
-						window.dispatchEvent(
-							new CustomEvent("category-renamed", {
-								detail: { oldName, newName },
-							})
-						);
-
-						this.current = newName;
-						this.editing = false;
 					},
 				}));
 			});
