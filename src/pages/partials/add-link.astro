@@ -9,12 +9,14 @@ if (Astro.request.method !== "POST") {
 }
 
 const formData = await Astro.request.formData();
+const panel_name = String(formData.get("panel_name") ?? "").trim();
+const current_panel = String(formData.get("current_panel") ?? "").trim();
 const category_name = String(formData.get("category_name") ?? "").trim();
 const title = String(formData.get("title") ?? "").trim();
 const url = String(formData.get("url") ?? "").trim();
 const description = String(formData.get("description") ?? "").trim() || null;
 
-if (!category_name || !title || !url) {
+if (!panel_name || !category_name || !title || !url) {
 	return new Response("Missing required fields", { status: 400 });
 }
 
@@ -26,6 +28,7 @@ if (!hasSupabaseCredentials || !supabase) {
 const { data: lastPositioned } = await supabase
 	.from("links")
 	.select("position")
+	.eq("panel_name", panel_name)
 	.eq("category_name", category_name)
 	.order("position", { ascending: false })
 	.limit(1)
@@ -34,6 +37,7 @@ const { data: lastPositioned } = await supabase
 const nextPosition = (lastPositioned?.position ?? -1) + 1;
 
 const payload = {
+	panel_name,
 	category_name,
 	title,
 	url,
@@ -44,7 +48,7 @@ const payload = {
 const { data, error } = await supabase
 	.from("links")
 	.insert(payload)
-	.select("id, category_name, title, url, description, position")
+	.select("id, panel_name, category_name, title, url, description, position")
 	.single();
 
 if (error || !data) {
@@ -59,11 +63,21 @@ if (error || !data) {
 	return new Response(error?.message ?? "Insert failed", { status: 500 });
 }
 
+if (current_panel && current_panel !== data.panel_name) {
+	return new Response("", {
+		status: 200,
+		headers: {
+			"HX-Redirect": `/?panel=${encodeURIComponent(data.panel_name)}`,
+		},
+	});
+}
+
 const slug = categorySlug(data.category_name);
 
 const { count: categoryCount } = await supabase
 	.from("links")
 	.select("id", { count: "exact", head: true })
+	.eq("panel_name", data.panel_name)
 	.eq("category_name", data.category_name);
 
 const linkCount = categoryCount ?? 0;
@@ -118,17 +132,33 @@ const isNewCategory = linkCount <= 1;
 							{data.description ?? "No description yet"}
 						</p>
 					</div>
-					<button
-						type="button"
-						class="link-delete"
-						aria-label={`Delete ${data.title}`}
-						hx-delete={`/partials/delete-link?id=${data.id}`}
-						hx-target="closest .link-item"
-						hx-swap="outerHTML swap:300ms"
-						hx-confirm={`Delete "${data.title}"?`}
-					>
-						×
-					</button>
+					<div class="link-actions">
+						<button
+							type="button"
+							class="link-edit"
+							aria-label={`Edit ${data.title}`}
+							data-action="edit-link"
+							data-id={data.id}
+							data-title={data.title}
+							data-url={data.url}
+							data-description={data.description ?? ""}
+							data-panel={data.panel_name}
+							data-category={data.category_name}
+						>
+							✎
+						</button>
+						<button
+							type="button"
+							class="link-delete"
+							aria-label={`Delete ${data.title}`}
+							hx-delete={`/partials/delete-link?id=${data.id}`}
+							hx-target="closest .link-item"
+							hx-swap="outerHTML swap:300ms"
+							hx-confirm={`Delete "${data.title}"?`}
+						>
+							×
+						</button>
+					</div>
 				</li>
 			</ul>
 		</section>
@@ -150,17 +180,33 @@ const isNewCategory = linkCount <= 1;
 						{data.description ?? "No description yet"}
 					</p>
 				</div>
-				<button
-					type="button"
-					class="link-delete"
-					aria-label={`Delete ${data.title}`}
-					hx-delete={`/partials/delete-link?id=${data.id}`}
-					hx-target="closest .link-item"
-					hx-swap="outerHTML swap:300ms"
-					hx-confirm={`Delete "${data.title}"?`}
-				>
-					×
-				</button>
+				<div class="link-actions">
+					<button
+						type="button"
+						class="link-edit"
+						aria-label={`Edit ${data.title}`}
+						data-action="edit-link"
+						data-id={data.id}
+						data-title={data.title}
+						data-url={data.url}
+						data-description={data.description ?? ""}
+						data-panel={data.panel_name}
+						data-category={data.category_name}
+					>
+						✎
+					</button>
+					<button
+						type="button"
+						class="link-delete"
+						aria-label={`Delete ${data.title}`}
+						hx-delete={`/partials/delete-link?id=${data.id}`}
+						hx-target="closest .link-item"
+						hx-swap="outerHTML swap:300ms"
+						hx-confirm={`Delete "${data.title}"?`}
+					>
+						×
+					</button>
+				</div>
 			</li>
 		</ul>
 		<span

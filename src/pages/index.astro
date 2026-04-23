@@ -4,6 +4,7 @@ import { categorySlug } from "../lib/slug";
 
 type DashboardLink = {
 	id: string;
+	panel_name: string;
 	category_name: string;
 	title: string;
 	url: string;
@@ -12,32 +13,60 @@ type DashboardLink = {
 
 type EmptyStateKind = "unconfigured" | "error" | "empty" | "ok";
 
+const DEFAULT_PANELS = ["Work", "Learning", "News"] as const;
+
+const requestedPanel = Astro.url.searchParams.get("panel")?.trim() || null;
+
 let links: DashboardLink[] = [];
+let allPanels: string[] = [...DEFAULT_PANELS];
+let activePanel: string = requestedPanel || DEFAULT_PANELS[0];
 let emptyState: EmptyStateKind = "ok";
 let errorMessage: string | null = null;
 
 if (!hasSupabaseCredentials || !supabase) {
 	emptyState = "unconfigured";
 } else {
-	const { data, error } = await supabase
+	const { data: panelData, error: panelError } = await supabase
 		.from("links")
-		.select("id, category_name, title, url, description, position")
-		.order("category_name", { ascending: true })
-		.order("position", { ascending: true })
-		.order("created_at", { ascending: true });
+		.select("panel_name");
 
-	if (error) {
-		console.error("[index] Supabase select failed:", {
-			message: error.message,
-			details: error.details,
-			hint: error.hint,
-			code: error.code,
-		});
+	if (panelError) {
+		console.error("[index] Panel discovery failed:", panelError);
 		emptyState = "error";
-		errorMessage = error.message;
+		errorMessage = panelError.message;
 	} else {
-		links = data ?? [];
-		if (links.length === 0) emptyState = "empty";
+		const dbPanels = Array.from(
+			new Set((panelData ?? []).map((row) => row.panel_name).filter(Boolean))
+		) as string[];
+		allPanels = Array.from(new Set([...DEFAULT_PANELS, ...dbPanels]));
+		if (requestedPanel && !allPanels.includes(requestedPanel)) {
+			allPanels = [...allPanels, requestedPanel];
+		}
+		activePanel = requestedPanel || DEFAULT_PANELS[0];
+	}
+
+	if (emptyState === "ok") {
+		const { data, error } = await supabase
+			.from("links")
+			.select("id, panel_name, category_name, title, url, description, position")
+			.eq("panel_name", activePanel)
+			.order("category_name", { ascending: true })
+			.order("position", { ascending: true })
+			.order("created_at", { ascending: true });
+
+		if (error) {
+			console.error("[index] Supabase select failed:", {
+				message: error.message,
+				details: error.details,
+				hint: error.hint,
+				code: error.code,
+			});
+			emptyState = "error";
+			errorMessage = error.message;
+		} else {
+			links = data ?? [];
+			if (links.length === 0) emptyState = "empty";
+		}
 	}
 }
 
@@ -258,12 +287,18 @@ const categoryNames = categories.map(([name]) => name);
 
 			.link-item {
 				display: grid;
-				grid-template-columns: 1.5rem 1fr 2.2rem;
+				grid-template-columns: 1.5rem 1fr auto;
 				gap: 0.6rem;
 				padding: 1rem 0;
 				border-bottom: 1px solid color-mix(in srgb, var(--border), transparent 72%);
 				opacity: 1;
 				transition: opacity 280ms ease;
+			}
+
+			.link-actions {
+				display: flex;
+				align-self: center;
+				gap: 0.2rem;
 			}
 
 			.link-item.htmx-added {
@@ -330,7 +365,8 @@ const categoryNames = categories.map(([name]) => name);
 				font-size: 1.08rem;
 			}
 
-			.link-delete {
+			.link-delete,
+			.link-edit {
 				align-self: center;
 				width: 2rem;
 				height: 2rem;
@@ -344,7 +380,8 @@ const categoryNames = categories.map(([name]) => name);
 				cursor: pointer;
 			}
 
-			.link-delete:hover {
+			.link-delete:hover,
+			.link-edit:hover {
 				color: var(--accent);
 				border-color: var(--accent);
 			}
@@ -575,7 +612,7 @@ const categoryNames = categories.map(([name]) => name);
 				}
 
 				.link-item {
-					grid-template-columns: 1.3rem 1fr 2rem;
+					grid-template-columns: 1.3rem 1fr auto;
 				}
 			}
 		</style>
@@ -583,6 +620,8 @@ const categoryNames = categories.map(([name]) => name);
 	<body
 		x-data="dashboard()"
 		data-categories={JSON.stringify(categoryNames)}
+		data-panels={JSON.stringify(allPanels)}
+		data-active-panel={activePanel}
 		@keydown.escape.window="closeAll()"
 	>
 		<div class="dashboard-shell">
@@ -604,11 +643,27 @@ const categoryNames = categories.map(([name]) => name);
 							hour12: false,
 						})}`}
 					</p>
-					<nav class="nav-tabs" aria-label="Dashboard sections">
-						<button class="nav-tab active" type="button">Work</button>
-						<button class="nav-tab" type="button">Learning</button>
-						<button class="nav-tab" type="button">News</button>
-						<button class="nav-tab" type="button">+</button>
+					<nav
+						class="nav-tabs"
+						aria-label="Dashboard sections"
+						style={`grid-template-columns: repeat(${allPanels.length + 1}, minmax(0, 1fr))`}
+					>
+						{allPanels.map((panel) => (
+							<a
+								class={`nav-tab ${panel === activePanel ? "active" : ""}`}
+								href={`/?panel=${encodeURIComponent(panel)}`}
+							>
+								{panel}
+							</a>
+						))}
+						<button
+							class="nav-tab"
+							type="button"
+							data-action="add-panel"
+							aria-label="Add panel"
+						>
+							+
+						</button>
 					</nav>
 				</div>
 			</header>
@@ -715,17 +770,33 @@ const categoryNames = categories.map(([name]) => name);
 													{link.description ?? "No description yet"}
 												</p>
 											</div>
-											<button
-												type="button"
-												class="link-delete"
-												aria-label={`Delete ${link.title}`}
-												hx-delete={`/partials/delete-link?id=${link.id}`}
-												hx-target="closest .link-item"
-												hx-swap="outerHTML swap:300ms"
-												hx-confirm={`Delete "${link.title}"?`}
-											>
-												×
-											</button>
+											<div class="link-actions">
+												<button
+													type="button"
+													class="link-edit"
+													aria-label={`Edit ${link.title}`}
+													data-action="edit-link"
+													data-id={link.id}
+													data-title={link.title}
+													data-url={link.url}
+													data-description={link.description ?? ""}
+													data-panel={link.panel_name}
+													data-category={link.category_name}
+												>
+													✎
+												</button>
+												<button
+													type="button"
+													class="link-delete"
+													aria-label={`Delete ${link.title}`}
+													hx-delete={`/partials/delete-link?id=${link.id}`}
+													hx-target="closest .link-item"
+													hx-swap="outerHTML swap:300ms"
+													hx-confirm={`Delete "${link.title}"?`}
+												>
+													×
+												</button>
+											</div>
 										</li>
 									))}
 								</ul>
@@ -774,6 +845,7 @@ const categoryNames = categories.map(([name]) => name);
 					@htmx:before-request="if (!validateLinkForm()) $event.preventDefault()"
 					@htmx:after-request="onLinkSubmitted($event)"
 				>
+					<input type="hidden" name="current_panel" :value="activePanelName" />
 					<div class="modal-field">
 						<label for="link-title">Name</label>
 						<input
@@ -807,17 +879,35 @@ const categoryNames = categories.map(([name]) => name);
 						/>
 					</div>
 					<div class="modal-field">
-						<label for="link-category">Category</label>
+						<label for="link-panel">Panel</label>
 						<select
-							id="link-category"
-							name="category_name"
+							id="link-panel"
+							name="panel_name"
 							class="modal-select"
-							x-model="linkModalCategory"
+							x-model="linkModalPanel"
 						>
-							<template x-for="cat in allCategories" :key="cat">
-								<option :value="cat" x-text="cat"></option>
+							<template x-for="p in allPanels" :key="p">
+								<option :value="p" x-text="p"></option>
 							</template>
 						</select>
+					</div>
+					<div class="modal-field">
+						<label for="link-category">Category</label>
+						<input
+							id="link-category"
+							name="category_name"
+							type="text"
+							x-model="linkModalCategory"
+							@input="linkError = null"
+							list="link-category-options"
+							placeholder="Existing or new category"
+							autocomplete="off"
+						/>
+						<datalist id="link-category-options">
+							<template x-for="cat in allCategories" :key="cat">
+								<option :value="cat"></option>
+							</template>
+						</datalist>
 					</div>
 					<p
 						class="modal-error"
@@ -831,6 +921,137 @@ const categoryNames = categories.map(([name]) => name);
 							Cancel
 						</button>
 						<button type="submit" class="btn-accent">Add</button>
+					</div>
+				</form>
+			</div>
+		</div>
+
+		<!-- ADD PANEL MODAL -->
+		<div
+			x-show="panelModal"
+			x-cloak
+			x-transition.opacity
+			class="modal-overlay"
+			@click.self="panelModal = false"
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="add-panel-title"
+		>
+			<div class="modal" @click.stop>
+				<h3 class="modal-title" id="add-panel-title">Add Panel</h3>
+				<p class="modal-subtitle">
+					Name a new dashboard tab — first link creates it in the database.
+				</p>
+				<form @submit.prevent="submitPanel()">
+					<div class="modal-field">
+						<label for="panel-name">Name</label>
+						<input
+							id="panel-name"
+							name="name"
+							type="text"
+							x-model="panelModalName"
+							required
+							autocomplete="off"
+						/>
+					</div>
+					<div class="modal-actions">
+						<button type="button" class="btn-outline" @click="panelModal = false">
+							Cancel
+						</button>
+						<button type="submit" class="btn-accent">Create</button>
+					</div>
+				</form>
+			</div>
+		</div>
+
+		<!-- EDIT LINK MODAL -->
+		<div
+			x-show="editModal"
+			x-cloak
+			x-transition.opacity
+			class="modal-overlay"
+			@click.self="editModal = false"
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="edit-link-title"
+		>
+			<div class="modal" @click.stop>
+				<h3 class="modal-title" id="edit-link-title">Edit Link</h3>
+				<form @submit.prevent="submitEditLink()">
+					<div class="modal-field">
+						<label for="edit-link-title-input">Name</label>
+						<input
+							id="edit-link-title-input"
+							name="title"
+							type="text"
+							x-model="editModalData.title"
+							@input="editError = null"
+							autocomplete="off"
+						/>
+					</div>
+					<div class="modal-field">
+						<label for="edit-link-description">Description</label>
+						<input
+							id="edit-link-description"
+							name="description"
+							type="text"
+							x-model="editModalData.description"
+							autocomplete="off"
+						/>
+					</div>
+					<div class="modal-field">
+						<label for="edit-link-url">URL</label>
+						<input
+							id="edit-link-url"
+							name="url"
+							type="url"
+							x-model="editModalData.url"
+							@input="editError = null"
+							autocomplete="off"
+						/>
+					</div>
+					<div class="modal-field">
+						<label for="edit-link-panel">Panel</label>
+						<select
+							id="edit-link-panel"
+							name="panel_name"
+							class="modal-select"
+							x-model="editModalData.panel_name"
+						>
+							<template x-for="p in allPanels" :key="p">
+								<option :value="p" x-text="p"></option>
+							</template>
+						</select>
+					</div>
+					<div class="modal-field">
+						<label for="edit-link-category">Category</label>
+						<input
+							id="edit-link-category"
+							name="category_name"
+							type="text"
+							x-model="editModalData.category_name"
+							@input="editError = null"
+							list="edit-link-category-options"
+							autocomplete="off"
+						/>
+						<datalist id="edit-link-category-options">
+							<template x-for="cat in allCategories" :key="cat">
+								<option :value="cat"></option>
+							</template>
+						</datalist>
+					</div>
+					<p
+						class="modal-error"
+						x-show="editError"
+						x-cloak
+						x-text="editError"
+						role="alert"
+					></p>
+					<div class="modal-actions">
+						<button type="button" class="btn-outline" @click="editModal = false">
+							Cancel
+						</button>
+						<button type="submit" class="btn-accent">Save</button>
 					</div>
 				</form>
 			</div>
@@ -1002,6 +1223,7 @@ const categoryNames = categories.map(([name]) => name);
 				window.Alpine.data("dashboard", () => ({
 					linkModal: false,
 					linkModalCategory: "",
+					linkModalPanel: "",
 					linkError: null,
 					categoryModal: false,
 					categoryModalName: "",
@@ -1009,7 +1231,21 @@ const categoryNames = categories.map(([name]) => name);
 					renameModalOldName: "",
 					renameModalName: "",
 					renameError: null,
+					panelModal: false,
+					panelModalName: "",
+					editModal: false,
+					editModalData: {
+						id: "",
+						title: "",
+						description: "",
+						url: "",
+						panel_name: "",
+						category_name: "",
+					},
+					editError: null,
 					allCategories: [],
+					allPanels: [],
+					activePanelName: "",
 
 					init() {
 						try {
@@ -1019,17 +1255,40 @@ const categoryNames = categories.map(([name]) => name);
 						} catch {
 							this.allCategories = [];
 						}
+						try {
+							this.allPanels = JSON.parse(
+								document.body.dataset.panels || "[]"
+							);
+						} catch {
+							this.allPanels = [];
+						}
+						this.activePanelName =
+							document.body.dataset.activePanel || this.allPanels[0] || "";
 
 						document.addEventListener("click", (event) => {
 							const trigger = event.target.closest("[data-action]");
 							if (!trigger) return;
 							const action = trigger.dataset.action;
 							if (action === "add-link") {
-								this.openLinkModal(trigger.dataset.category || "");
+								this.openLinkModal({
+									category: trigger.dataset.category || "",
+								});
 							} else if (action === "add-category") {
 								this.openCategoryModal();
 							} else if (action === "rename-category") {
 								this.openRenameModal(trigger.dataset.category || "");
+							} else if (action === "add-panel") {
+								this.openPanelModal();
+							} else if (action === "edit-link") {
+								this.openEditModal({
+									id: trigger.dataset.id || "",
+									title: trigger.dataset.title || "",
+									description: trigger.dataset.description || "",
+									url: trigger.dataset.url || "",
+									panel_name:
+										trigger.dataset.panel || this.activePanelName,
+									category_name: trigger.dataset.category || "",
+								});
 							}
 						});
 
@@ -1044,12 +1303,26 @@ const categoryNames = categories.map(([name]) => name);
 						});
 					},
 
-					openLinkModal(category) {
+					openLinkModal(options) {
+						const opts =
+							typeof options === "string"
+								? { category: options }
+								: options || {};
+						const category = opts.category || "";
+						const panel = opts.panel || this.activePanelName;
+
 						if (category && !this.allCategories.includes(category)) {
 							this.allCategories = [...this.allCategories, category];
 						}
+						if (panel && !this.allPanels.includes(panel)) {
+							this.allPanels = [...this.allPanels, panel];
+						}
+
+						const panelMatchesActive = panel === this.activePanelName;
 						this.linkModalCategory =
-							category || this.allCategories[0] || "";
+							category ||
+							(panelMatchesActive ? this.allCategories[0] || "" : "");
+						this.linkModalPanel = panel || this.allPanels[0] || "";
 						this.linkError = null;
 						this.linkModal = true;
 						this.$nextTick(() => {
@@ -1069,7 +1342,93 @@ const categoryNames = categories.map(([name]) => name);
 						const name = this.categoryModalName.trim();
 						if (!name) return;
 						this.categoryModal = false;
-						this.openLinkModal(name);
+						this.openLinkModal({ category: name });
+					},
+
+					openPanelModal() {
+						this.panelModalName = "";
+						this.panelModal = true;
+						this.$nextTick(() => {
+							document.getElementById("panel-name")?.focus();
+						});
+					},
+
+					submitPanel() {
+						const name = this.panelModalName.trim();
+						if (!name) return;
+						this.panelModal = false;
+						this.openLinkModal({ panel: name, category: "" });
+					},
+
+					openEditModal(link) {
+						this.editModalData = {
+							id: link.id,
+							title: link.title,
+							description: link.description,
+							url: link.url,
+							panel_name: link.panel_name,
+							category_name: link.category_name,
+						};
+						this.editError = null;
+						this.editModal = true;
+						this.$nextTick(() => {
+							document.getElementById("edit-link-title-input")?.focus();
+						});
+					},
+
+					async submitEditLink() {
+						const d = this.editModalData;
+						const title = (d.title || "").trim();
+						const url = (d.url || "").trim();
+						const panel = (d.panel_name || "").trim();
+						const category = (d.category_name || "").trim();
+						if (!title) {
+							this.editError = "Name is required.";
+							return;
+						}
+						if (!url || !/^https?:\/\/.+/i.test(url)) {
+							this.editError = "URL must start with http:// or https://";
+							return;
+						}
+						if (!panel) {
+							this.editError = "Panel is required.";
+							return;
+						}
+						if (!category) {
+							this.editError = "Category is required.";
+							return;
+						}
+
+						const fd = new FormData();
+						fd.append("id", d.id);
+						fd.append("title", title);
+						fd.append("description", (d.description || "").trim());
+						fd.append("url", url);
+						fd.append("panel_name", panel);
+						fd.append("category_name", category);
+
+						let res;
+						try {
+							res = await fetch("/partials/edit-link", {
+								method: "POST",
+								body: fd,
+							});
+						} catch (err) {
+							this.editError = "Network error: " + err.message;
+							return;
+						}
+
+						if (!res.ok) {
+							this.editError = (await res.text()) || "Save failed.";
+							return;
+						}
+
+						if (panel !== this.activePanelName) {
+							window.location.href = `/?panel=${encodeURIComponent(panel)}`;
+							return;
+						}
+
+						window.location.reload();
 					},
 
 					openRenameModal(category) {
@@ -1165,6 +1524,8 @@ const categoryNames = categories.map(([name]) => name);
 						this.linkModal = false;
 						this.categoryModal = false;
 						this.renameModal = false;
+						this.panelModal = false;
+						this.editModal = false;
 					},
 
 					validateLinkForm() {
@@ -1173,6 +1534,7 @@ const categoryNames = categories.map(([name]) => name);
 						const fd = new FormData(form);
 						const name = String(fd.get("title") ?? "").trim();
 						const url = String(fd.get("url") ?? "").trim();
+						const panel = String(fd.get("panel_name") ?? "").trim();
 						const category = String(fd.get("category_name") ?? "").trim();
 						if (!name && !url) {
 							this.linkError = "Name and URL are required.";
@@ -1188,6 +1550,10 @@ const categoryNames = categories.map(([name]) => name);
 						}
 						if (!/^https?:\/\/.+/i.test(url)) {
 							this.linkError = "URL must start with http:// or https://";
+							return false;
+						}
+						if (!panel) {
+							this.linkError = "Panel is required.";
 							return false;
 						}
 						if (!category) {

@@ -1,0 +1,90 @@
+---
+export const partial = true;
+
+import { hasSupabaseCredentials, supabase } from "../../lib/supabase";
+
+if (Astro.request.method !== "POST") {
+	return new Response("Method Not Allowed", { status: 405 });
+}
+
+const formData = await Astro.request.formData();
+const id = String(formData.get("id") ?? "").trim();
+const title = String(formData.get("title") ?? "").trim();
+const url = String(formData.get("url") ?? "").trim();
+const description =
+	String(formData.get("description") ?? "").trim() || null;
+const panel_name = String(formData.get("panel_name") ?? "").trim();
+const category_name = String(formData.get("category_name") ?? "").trim();
+
+if (!id || !title || !url || !panel_name || !category_name) {
+	return new Response(
+		"id, title, url, panel_name and category_name are required.",
+		{ status: 400 }
+	);
+}
+
+if (!hasSupabaseCredentials || !supabase) {
+	console.error("[edit-link] Supabase credentials missing.");
+	return new Response("Supabase is not configured", { status: 500 });
+}
+
+const { data: existing, error: existingError } = await supabase
+	.from("links")
+	.select("id, panel_name, category_name")
+	.eq("id", id)
+	.maybeSingle();
+
+if (existingError) {
+	console.error("[edit-link] Lookup failed:", existingError);
+	return new Response(existingError.message, { status: 500 });
+}
+
+if (!existing) {
+	return new Response("Link not found.", { status: 404 });
+}
+
+const movedCategory =
+	existing.panel_name !== panel_name ||
+	existing.category_name !== category_name;
+
+let nextPosition: number | null = null;
+if (movedCategory) {
+	const { data: lastPositioned } = await supabase
+		.from("links")
+		.select("position")
+		.eq("panel_name", panel_name)
+		.eq("category_name", category_name)
+		.order("position", { ascending: false })
+		.limit(1)
+		.maybeSingle();
+	nextPosition = (lastPositioned?.position ?? -1) + 1;
+}
+
+const updatePayload: Record<string, unknown> = {
+	title,
+	url,
+	description,
+	panel_name,
+	category_name,
+};
+if (nextPosition !== null) {
+	updatePayload.position = nextPosition;
+}
+
+const { error: updateError } = await supabase
+	.from("links")
+	.update(updatePayload)
+	.eq("id", id);
+
+if (updateError) {
+	console.error("[edit-link] Update failed:", {
+		message: updateError.message,
+		details: updateError.details,
+		hint: updateError.hint,
+		code: updateError.code,
+	});
+	return new Response(updateError.message, { status: 500 });
+}
+
+return new Response("", { status: 200 });
+---
