@@ -44,43 +44,114 @@ if (error || !data) {
 }
 
 const slug = categorySlug(data.category_name);
-const oobTarget = `afterbegin:#list-${slug}`;
 
 const { count: categoryCount } = await supabase
 	.from("links")
 	.select("id", { count: "exact", head: true })
 	.eq("category_name", data.category_name);
+
+const linkCount = categoryCount ?? 0;
+const isNewCategory = linkCount <= 1;
 ---
-<ul hx-swap-oob={oobTarget}>
-	<li
-		class="link-item"
-		data-link-id={data.id}
-	>
-		<span class="handle" aria-hidden="true">⠿</span>
-		<div>
-			<a href={data.url} target="_blank" rel="noreferrer">
-				<h3 class="link-title">{data.title}</h3>
-			</a>
-			<p class="link-description">
-				{data.description ?? "No description yet"}
-			</p>
-		</div>
-		<button
-			type="button"
-			class="link-delete"
-			aria-label={`Delete ${data.title}`}
-			hx-delete={`/partials/delete-link?id=${data.id}`}
-			hx-target="closest .link-item"
-			hx-swap="outerHTML swap:300ms"
-			hx-confirm={`Delete "${data.title}"?`}
+{isNewCategory ? (
+	<div hx-swap-oob="beforeend:#dashboard-main">
+		<section
+			class="category-panel"
+			data-category={data.category_name}
+			data-slug={slug}
 		>
-			×
-		</button>
-	</li>
-</ul>
-<span
-	id={`count-${slug}`}
-	class="category-count"
-	aria-label={`${categoryCount ?? 0} links`}
-	hx-swap-oob="true"
->({categoryCount ?? 0})</span>
+			<div
+				class="panel-heading"
+				data-category={data.category_name}
+				data-slug={slug}
+			>
+				<h2 class="category-name">
+					<button
+						type="button"
+						class="category-label"
+						data-action="rename-category"
+						data-category={data.category_name}
+						title="Click to rename"
+					>{data.category_name}</button>
+					<span
+						id={`count-${slug}`}
+						class="category-count"
+						aria-label={`${linkCount} links`}
+					>({linkCount})</span>
+				</h2>
+				<div class="panel-actions">
+					<button
+						type="button"
+						class="btn-accent panel-add-btn"
+						data-action="add-link"
+						data-category={data.category_name}
+					>
+						+ Add
+					</button>
+					<button type="button">Del</button>
+				</div>
+			</div>
+			<ul class="link-list" id={`list-${slug}`}>
+				<li class="link-item" data-link-id={data.id}>
+					<span class="handle" aria-hidden="true">⠿</span>
+					<div>
+						<a href={data.url} target="_blank" rel="noreferrer">
+							<h3 class="link-title">{data.title}</h3>
+						</a>
+						<p class="link-description">
+							{data.description ?? "No description yet"}
+						</p>
+					</div>
+					<button
+						type="button"
+						class="link-delete"
+						aria-label={`Delete ${data.title}`}
+						hx-delete={`/partials/delete-link?id=${data.id}`}
+						hx-target="closest .link-item"
+						hx-swap="outerHTML swap:300ms"
+						hx-confirm={`Delete "${data.title}"?`}
+					>
+						×
+					</button>
+				</li>
+			</ul>
+		</section>
+	</div>
+	<div id="empty-state" hx-swap-oob="delete"></div>
+) : (
+	<>
+		<ul hx-swap-oob={`afterbegin:#list-${slug}`}>
+			<li
+				class="link-item"
+				data-link-id={data.id}
+			>
+				<span class="handle" aria-hidden="true">⠿</span>
+				<div>
+					<a href={data.url} target="_blank" rel="noreferrer">
+						<h3 class="link-title">{data.title}</h3>
+					</a>
+					<p class="link-description">
+						{data.description ?? "No description yet"}
+					</p>
+				</div>
+				<button
+					type="button"
+					class="link-delete"
+					aria-label={`Delete ${data.title}`}
+					hx-delete={`/partials/delete-link?id=${data.id}`}
+					hx-target="closest .link-item"
+					hx-swap="outerHTML swap:300ms"
+					hx-confirm={`Delete "${data.title}"?`}
+				>
+					×
+				</button>
+			</li>
+		</ul>
+		<span
+			id={`count-${slug}`}
+			class="category-count"
+			aria-label={`${linkCount} links`}
+			hx-swap-oob="true"
+		>({linkCount})</span>
+	</>
+)}

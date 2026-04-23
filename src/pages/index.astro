@@ -589,7 +589,7 @@ const categoryNames = categories.map(([name]) => name);
 
 			<main class="dashboard-main" id="dashboard-main">
 				{emptyState !== "ok" && (
-					<section class="empty-state" data-state={emptyState}>
+					<section id="empty-state" class="empty-state" data-state={emptyState}>
 						<p class="empty-state-eyebrow">
 							{emptyState === "unconfigured"
 								? "System :: Offline"
