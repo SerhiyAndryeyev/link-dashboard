@@ -1,0 +1,47 @@
+---
+export const partial = true;
+
+import { hasSupabaseCredentials, supabase } from "../../lib/supabase";
+
+if (Astro.request.method !== "POST") {
+	return new Response("Method Not Allowed", { status: 405 });
+}
+
+const formData = await Astro.request.formData();
+const category_name = String(formData.get("category_name") ?? "").trim();
+const ids = formData
+	.getAll("ids")
+	.map((value) => String(value).trim())
+	.filter(Boolean);
+
+if (!category_name || ids.length === 0) {
+	return new Response("category_name and ids are required.", { status: 400 });
+}
+
+if (!hasSupabaseCredentials || !supabase) {
+	console.error("[reorder-links] Supabase credentials missing.");
+	return new Response("Supabase is not configured", { status: 500 });
+}
+
+const updates = await Promise.all(
+	ids.map((id, position) =>
+		supabase!
+			.from("links")
+			.update({ category_name, position })
+			.eq("id", id)
+	)
+);
+
+const failure = updates.find((result) => result.error);
+if (failure?.error) {
+	console.error("[reorder-links] Supabase update failed:", {
+		message: failure.error.message,
+		details: failure.error.details,
+		hint: failure.error.hint,
+		code: failure.error.code,
+	});
+	return new Response(failure.error.message, { status: 500 });
+}
+
+return new Response("", { status: 200 });
+---

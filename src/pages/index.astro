@@ -21,9 +21,10 @@ if (!hasSupabaseCredentials || !supabase) {
 } else {
 	const { data, error } = await supabase
 		.from("links")
-		.select("id, category_name, title, url, description")
+		.select("id, category_name, title, url, description, position")
 		.order("category_name", { ascending: true })
-		.order("created_at", { ascending: false });
+		.order("position", { ascending: true })
+		.order("created_at", { ascending: true });
 
 	if (error) {
 		console.error("[index] Supabase select failed:", {
@@ -63,6 +64,7 @@ const categoryNames = categories.map(([name]) => name);
 		<title>Command Mission Control</title>
 		<script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
 		<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+		<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js" defer></script>
 		<style is:global>
 			:root {
 				--bg: #f3f0e8;
@@ -285,10 +287,34 @@ const categoryNames = categories.map(([name]) => name);
 				user-select: none;
 				cursor: grab;
 				opacity: 0.55;
+				touch-action: none;
+			}
+
+			.handle:active {
+				cursor: grabbing;
 			}
 
 			.link-item:hover .handle {
 				opacity: 0.9;
+			}
+
+			.link-item.sortable-ghost {
+				opacity: 0.35;
+				background: color-mix(in srgb, var(--accent), transparent 85%);
+			}
+
+			.link-item.sortable-chosen {
+				cursor: grabbing;
+			}
+
+			.link-item.sortable-drag {
+				opacity: 0.95;
+				background: var(--panel);
+				border: 1px solid var(--accent);
+			}
+
+			.link-list.link-list-drop-target {
+				background: color-mix(in srgb, var(--accent), transparent 92%);
 			}
 
 			.link-title {
@@ -892,6 +918,77 @@ const categoryNames = categories.map(([name]) => name);
 		</div>
 
 		<script is:inline>
+			function initSortableLists() {
+				if (typeof window.Sortable === "undefined") return;
+				document.querySelectorAll(".link-list").forEach((list) => {
+					if (list.dataset.sortableInit === "1") return;
+					list.dataset.sortableInit = "1";
+					window.Sortable.create(list, {
+						group: "dashboard-links",
+						handle: ".handle",
+						animation: 150,
+						ghostClass: "sortable-ghost",
+						chosenClass: "sortable-chosen",
+						dragClass: "sortable-drag",
+						forceFallback: false,
+						onEnd: (event) => {
+							persistListOrder(event.to);
+							if (event.from !== event.to) {
+								persistListOrder(event.from);
+								updateCategoryCount(event.from);
+								updateCategoryCount(event.to);
+							}
+						},
+					});
+				});
+			}
+
+			function updateCategoryCount(listEl) {
+				const section = listEl.closest("section.category-panel");
+				if (!section) return;
+				const slug = section.dataset.slug;
+				const count = section.querySelector(`#count-${CSS.escape(slug)}`);
+				if (count) {
+					const total = listEl.querySelectorAll(".link-item").length;
+					count.textContent = `(${total})`;
+					count.setAttribute("aria-label", `${total} links`);
+				}
+			}
+
+			async function persistListOrder(listEl) {
+				const section = listEl.closest("section.category-panel");
+				if (!section) return;
+				const category = section.dataset.category;
+				const items = Array.from(listEl.querySelectorAll(".link-item"));
+				if (items.length === 0) return;
+
+				const fd = new FormData();
+				fd.append("category_name", category);
+				items.forEach((li) => {
+					const id = li.dataset.linkId;
+					if (id) fd.append("ids", id);
+				});
+
+				try {
+					const res = await fetch("/partials/reorder-links", {
+						method: "POST",
+						body: fd,
+					});
+					if (!res.ok) {
+						console.error(
+							"[reorder-links] server error:",
+							await res.text()
+						);
+					}
+				} catch (err) {
+					console.error("[reorder-links] network error:", err);
+				}
+			}
+
+			document.addEventListener("DOMContentLoaded", initSortableLists);
+			document.addEventListener("htmx:afterSettle", initSortableLists);
+			window.addEventListener("load", initSortableLists);
+
 			function slugifyCategory(name) {
 				return (
 					(name || "uncategorized")

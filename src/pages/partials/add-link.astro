@@ -23,12 +23,28 @@ if (!hasSupabaseCredentials || !supabase) {
 	return new Response("Supabase is not configured", { status: 500 });
 }
 
-const payload = { category_name, title, url, description };
+const { data: lastPositioned } = await supabase
+	.from("links")
+	.select("position")
+	.eq("category_name", category_name)
+	.order("position", { ascending: false })
+	.limit(1)
+	.maybeSingle();
+
+const nextPosition = (lastPositioned?.position ?? -1) + 1;
+
+const payload = {
+	category_name,
+	title,
+	url,
+	description,
+	position: nextPosition,
+};
 
 const { data, error } = await supabase
 	.from("links")
 	.insert(payload)
-	.select("id, category_name, title, url, description")
+	.select("id, category_name, title, url, description, position")
 	.single();
 
 if (error || !data) {
@@ -120,7 +136,7 @@ const isNewCategory = linkCount <= 1;
 	<div id="empty-state" hx-swap-oob="delete"></div>
 ) : (
 	<>
-		<ul hx-swap-oob={`afterbegin:#list-${slug}`}>
+		<ul hx-swap-oob={`beforeend:#list-${slug}`}>
 			<li
 				class="link-item"
 				data-link-id={data.id}
